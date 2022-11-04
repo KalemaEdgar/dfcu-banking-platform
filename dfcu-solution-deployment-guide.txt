@@ -1,0 +1,105 @@
+
+Prerequisites:
+A virtual private server, cloud instance or a dedicated server with ssh access and root access.
+
+Steps:
+1. Create a dedicated app user
+2. Setting / configuring the firewall
+3. Nginx or Apache installation and configuration
+4. Install composer (package manager for PHP)
+5. PHP and some extensions (shared below)
+6. Installing and configuring PostgreSQL for the database
+7. Cloning the code from the production branch on the repositories
+8. Setup the app to work with the ecosystem
+
+1. Create a dedicated app user and grant necessary permissions
+	ssh root@your_server
+	adduser laravel --- Enter password and other information
+	usermod -aG sudo laravel
+
+2. Setting up / configuring the firewall
+	sudo ufw app list -- check available firewall settings
+    sudo ufw allow OpenSSH -- Allow on OpenSSH (prevents us from getting locked out)
+    sudo ufw enable -- Enable the Firewall
+    sudo ufw status -- Check the status
+
+3. Installing NGINX
+	sudo apt install nginx
+	sudo systemctl nginx status
+
+	-- Allow the webserver through the firewall
+	sudo ufw app list
+	sudo ufw allow 'Nginx HTTP'
+	sudo ufw status --- check 
+	sudo systemctl reload nginx
+
+4. Install composer
+	Instructions can be found here https://getcomposer.org/download/
+
+4.1 Configuring composer
+	--- Optimize composer's class autoloader so composer can quickly find the file with the class
+	composer install --optimize-autoloader --no-dev
+
+	-- Confirm that you have a composer.lock file with the versions you need. having this makes installation of the dependecies faster
+
+5. PHP and some extensions (shared below)
+	sudo apt install software-properties-common && sudo add-apt-repository ppa:ondrej/php -y
+	sudo apt update
+	sudo apt upgrade -y
+	sudo apt install php8.1 php8.1-gd php8.1-fpm php8.1-curl php8.1-intl php8.1-pgsql php8.1-redis php8.1-sqlite3 php8.1-zip php8.1-xml php8.1-
+
+	At this time, Laravel (latest version) needs the extensions below so install them as well if they are not already installed
+    PHP >= 8.0, BCMath PHP Extension, Ctype PHP Extension, cURL PHP Extension, DOM PHP Extension, Fileinfo PHP Extension, JSON PHP Extension, Mbstring PHP Extension, OpenSSL PHP Extension, PCRE PHP Extension, PDO PHP Extension, Tokenizer PHP Extension, XML PHP Extension
+
+6. Install PostgreSQL -- most prefered is on another dedicated server
+	sudo apt install postgresql postgresql-contrib
+	sudo systemctl start postgresql.service
+	createdb dfcu_app
+	createdb momo_processor
+
+	-- If the installation is failing, you might need to install the ca-certs using the commands below
+	sudo apt install wget ca-certificates
+	wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+	sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" >> /etc/apt/sources.list.d/pgdg.list'
+
+6.1. Configuring PostgreSQL
+	vim /etc/postgresql/14/main/postgresql.conf
+
+		listen_addresses = '*' --- For test, this is okay but for production, restrict this to known authorized IPs
+	
+	vim /etc/postgresql/14/main/pg_hba.conf
+		Append a new connection policy
+		host all all 0.0.0.0/0 md5 --- Replace the IP with the specific IPs that need access
+		This one above allows TCP/IP connections (host) to all databases (all) for all users (all) with any IPv4 address (0.0.0.0/0)
+		NOTE: Even with the encryption (md5) of the password on the above, it is not the best for DFCU bank
+
+	systemctl restart postgresql
+
+	-- Check that the DB service is listening
+	ss -nlt | grep 5432 or netstat -ul |grep -i 5432 (depends on the OS version you are on)
+
+7. Cloning the code from the repo
+	cd /var/www/html
+	git clone https://github.com/KalemaEdgar/dfcu-banking-platform.git .
+	sudo chown laravel:laravel dfcu-banking-platform
+	cd dfcu-banking-platform
+	composer install
+	cp .env.example .env -- open the env file and configure the app
+
+	cd ..
+
+	git clone https://github.com/KalemaEdgar/momo-processor.git .
+	sudo chown laravel:laravel momo-processor
+	cd momo-processor
+	composer install
+
+	-- open the env file and configure the app (ensure APP_DEBUG is set to false)
+	cp .env.example .env
+
+8. Setup the apps to work with the -- do this with the folders of both repos
+	php artisan migrate:fresh --seed
+	php artisan key:generate to generate the key
+	sudo chmod -R 755 /var/www/html/project-folder --- fix 
+
+	php artisan config:cache -- caches the env variables
+	php artisan route:cache -- caches route registrations making it faster
